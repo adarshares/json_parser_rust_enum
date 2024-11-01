@@ -11,21 +11,20 @@ fn test_json() {
     let mut file: BufReader<File> = BufReader::new(File::open("./test.json").expect("open failed"));
 
 
-    let mut file_content_string: String = String::new();
+    let mut file_content: String = String::new();
 
-    file.read_to_string(&mut file_content_string).expect("not able to read file");
-    file_content_string = String::from(file_content_string.trim());
-    let file_content: Vec<char>= file_content_string.chars().collect();
-    match file_content.last()  {
-        Some(value) => {
-            if *value != ']'  && *value != '}' {
-                panic!("json not in proper format or residual data is present at the end");
-            }
-        }
-        None => {
-            panic!("json not in proper format");
-        }
-    }
+    file.read_to_string(&mut file_content).expect("not able to read file");
+    file_content = String::from(file_content.trim());
+    // match file_content.last()  {
+    //     Some(value) => {
+    //         if *value != ']'  && *value != '}' {
+    //             panic!("json not in proper format or residual data is present at the end");
+    //         }
+    //     }
+    //     None => {
+    //         panic!("json not in proper format");
+    //     }
+    // }
     //file.read_vectored(bufs)
     let start_time = time::Instant::now();
     let (_i,json) = calculate_vector(0, &file_content);
@@ -266,10 +265,10 @@ impl IndexMut<usize> for JSON {
 
 
 
-fn calculate_map(mut i: usize, input: &Vec<char>) -> (usize, JSON) {//TODO
+fn calculate_map(mut i: usize, input: &str) -> (usize, JSON) {//TODO
     let mut map: MyMap = MyMap::new();
     let mut key: String = String::new();
-    let mut value: JSON = JSON::Integer(-1 as f64);
+    let mut value: JSON = JSON::NULL;
 
     i += 1;
 
@@ -277,12 +276,12 @@ fn calculate_map(mut i: usize, input: &Vec<char>) -> (usize, JSON) {//TODO
     let mut has_value = false;
 
 
-    while i<input.len() {
-        match input[i] {
-            ' '|'\t'|'\n' => {
+    loop {
+        match input.as_bytes()[i] {
+            b' '|b'\t'|b'\n' => {
                 i += 1;
             }
-            '"' => {
+            b'"' => {
                 if has_key && has_value {
                     panic!("multiple values");
                 } else if has_key {
@@ -292,16 +291,16 @@ fn calculate_map(mut i: usize, input: &Vec<char>) -> (usize, JSON) {//TODO
                     has_key = true;
                 }
             }
-            ':' => {
+            b':' => {
                 if !has_key {
                     panic!("no key but specified for value");
                 }
                 (i,value) = calculate_value(i+1, input);
                 has_value = true;
             }
-            ',' => {
+            b',' => {
                 if has_key && has_value {
-                    map[key] = value;
+                    map.map.insert(key, value);
                     key = String::new();
                     value = JSON::Integer(-1 as f64);
                 } else {
@@ -312,9 +311,9 @@ fn calculate_map(mut i: usize, input: &Vec<char>) -> (usize, JSON) {//TODO
                 has_key = false;
                 has_value = false;
             }
-            '}' => {
+            b'}' => {
                 if has_key && has_value {
-                    map[key] = value;
+                    map.map.insert(key, value);
                     return (i+1, JSON::Map(map));
                 }
                 else if (!has_key) && (!has_value) {
@@ -325,60 +324,93 @@ fn calculate_map(mut i: usize, input: &Vec<char>) -> (usize, JSON) {//TODO
                 }
             }
             _=> {
-                panic!("unknown character, {}{}{}{}{}{}{}{}{}{}{}{}",input[i-4],input[i-3],input[i-2],input[i-1],input[i],input[i+1],input[i+2],input[i+3],input[i+4],input[i+5],input[i+6],i);
+                panic!("unknown character, {}{}{}->{}",input.as_bytes()[i-1] as char,input.as_bytes()[i] as char,input.as_bytes()[i+1] as char,i);
             }
         }
     }
     panic!("error parsing map ending");
 }
 
-fn calculate_key(mut i: usize, input : &Vec<char>) -> (usize, String){
+fn calculate_key(mut i: usize, input : &str) -> (usize, String) {
 
     let mut key: String = String::new();
-
-    while i<input.len() {
-        if input[i] == '"' {
-            return (i+1, key);
-        }
-        key.push(input[i]);
-        i += 1;
-    }
-     
-    panic!("error parsing string string key");
-}
-
-fn calculate_string(mut i:usize, input: &Vec<char>) -> (usize, JSON){
-
-    let mut value: String = String::new();
-    let ch = '\\';
+    let ch = b'\\';
     let mut is_backslash_on = false;
 
-    while i<input.len() {
-        if input[i] == ch {
-            is_backslash_on = !is_backslash_on;
-            i += 1;
-            value.push(input[i]);
-        }
-        else if input[i] == '"' && !is_backslash_on {
-            return (i+1, JSON::String(value));
-        }
-        else {
-            value.push(input[i]);
-            is_backslash_on = false;
-            i += 1;
+    loop {
+        match is_backslash_on {
+            true => {
+                match input.as_bytes()[i] {
+                    b'\'' => {key.push('\'');},
+                    b'\"' => { key.push('\"');},
+                    b'n' => { key.push('\n');},
+                    b'r' => { key.push('\r');},
+                    b'\\' => { key.push('\\');},
+                    c => { key.push('\\'); key.push(c as char);}
+                }
+                is_backslash_on = false;
+                i += 1;
+            }
+            false => {
+                if input.as_bytes()[i] == ch {
+                    is_backslash_on = true;
+                    i += 1;
+                } else if input.as_bytes()[i] == b'"'  {
+                    return (i+1, key);
+                } else {
+                    key.push(input.as_bytes()[i] as char);
+                    i += 1;
+                }
+            }
         }
     }
     panic!("error parsing string string");
 }
 
-fn calculate_boolean(mut i: usize, input: &Vec<char>) -> (usize, JSON){
+fn calculate_string(mut i:usize, input: &str) -> (usize, JSON){
+
+    let mut value: String = String::new();
+    let ch = b'\\';
+    let mut is_backslash_on = false;
+
+    loop {
+        match is_backslash_on {
+            true => {
+                match input.as_bytes()[i] {
+                    b'\'' => {value.push('\'');},
+                    b'\"' => { value.push('\"');},
+                    b'n' => { value.push('\n');},
+                    b'r' => { value.push('\r');},
+                    b'\\' => { value.push('\\');},
+                    c => { value.push('\\'); value.push(c as char);}
+                }
+                is_backslash_on = false;
+                i += 1;
+            }
+            false => {
+                if input.as_bytes()[i] == ch {
+                    is_backslash_on = true;
+                    i += 1;
+                } else if input.as_bytes()[i] == b'"'  {
+                    return (i+1, JSON::String(value));
+                } else {
+                    value.push(input.as_bytes()[i] as char);
+                    i += 1;
+                }
+            }
+        }
+    }
+    panic!("error parsing string string");
+}
+
+fn calculate_boolean(mut i: usize, input: &str) -> (usize, JSON){
     let mut boolean: String = String::new();
-    while i < input.len() {
-        if input[i].is_alphabetic() {
-            boolean.push(input[i]);
+    loop {
+        if (input.as_bytes()[i] as char).is_alphabetic() {
+            boolean.push(input.as_bytes()[i] as char);
             i += 1;
         }
-        else if input[i] == ',' || input[i] == '\t' || input[i] == '\n' || input[i] == ' ' || input[i] == '}' || input[i] == ']' {
+        else if input.as_bytes()[i] == b',' || input.as_bytes()[i] == b'\t' || input.as_bytes()[i] == b'\n' || input.as_bytes()[i] == b' ' || input.as_bytes()[i] == b'}' || input.as_bytes()[i] == b']' {
             return (i,JSON::Boolean(boolean.parse().expect("not a boolean")));
         }
         else{
@@ -388,14 +420,14 @@ fn calculate_boolean(mut i: usize, input: &Vec<char>) -> (usize, JSON){
     panic!("error parsing boolean");
 }
 
-fn calculate_number(mut i:usize, input: &Vec<char>) -> (usize, JSON){
+fn calculate_number(mut i:usize, input: &str) -> (usize, JSON){
     let mut number: String = String::new();
-    while i < input.len() {
-        if input[i].is_ascii_digit() || input[i] == '.' {
-            number.push(input[i]);
+    loop {
+        if (input.as_bytes()[i]).is_ascii_digit() || input.as_bytes()[i] == b'.' {
+            number.push(input.as_bytes()[i] as char);
             i += 1;
         }
-        else if input[i] == ',' || input[i] == '\t' || input[i] == '\n' || input[i] == ' ' || input[i] == '}' || input[i] == ']' {
+        else if input.as_bytes()[i] == b',' || input.as_bytes()[i] == b'\t' || input.as_bytes()[i] == b'\n' || input.as_bytes()[i] == b' ' || input.as_bytes()[i] == b'}' || input.as_bytes()[i] == b']' {
             return (i,JSON::Integer(number.parse().expect("not a float")));
         }
         else{
@@ -406,14 +438,14 @@ fn calculate_number(mut i:usize, input: &Vec<char>) -> (usize, JSON){
 }
 
 //for just purpose of inclusion
-fn calculate_null(mut i:usize, input:&Vec<char>) -> (usize,JSON){ 
+fn calculate_null(mut i:usize, input:&str) -> (usize,JSON){ 
     let mut null = String::new();
-    while i < input.len() {
-        if input[i].is_alphabetic() {
-            null.push(input[i]);
+    loop {
+        if (input.as_bytes()[i] as char).is_alphabetic() {
+            null.push(input.as_bytes()[i] as char);
             i += 1;
         }
-        else if input[i] == ',' || input[i] == '\t' || input[i] == '\n' || input[i] == ' ' || input[i] == '}' || input[i] == ']' {
+        else if input.as_bytes()[i] == b',' || input.as_bytes()[i] == b'\t' || input.as_bytes()[i] == b'\n' || input.as_bytes()[i] == b' ' || input.as_bytes()[i] == b'}' || input.as_bytes()[i] == b']' {
             if null == String::from("null") {
                 return (i,JSON::NULL);
             }
@@ -427,7 +459,7 @@ fn calculate_null(mut i:usize, input:&Vec<char>) -> (usize,JSON){
 
 }
 
-fn calculate_vector(mut i:usize, input: &Vec<char>) -> (usize, JSON){
+fn calculate_vector(mut i:usize, input: &str) -> (usize, JSON){
 
     let mut vector: Vec<JSON> = Vec::new();
     let mut value: JSON = JSON::Integer(-1 as f64);
@@ -437,9 +469,9 @@ fn calculate_vector(mut i:usize, input: &Vec<char>) -> (usize, JSON){
     let mut has_value = false;
 
 
-    while i<input.len() {
-        match input[i] {
-            '"' => {
+    loop {
+        match input.as_bytes()[i] {
+            b'"' => {
                 if has_value {
                     panic!("multiple values string");
                 } else {
@@ -447,7 +479,7 @@ fn calculate_vector(mut i:usize, input: &Vec<char>) -> (usize, JSON){
                     has_value = true;
                 }
             }
-            ',' => {
+            b',' => {
                 if  has_value {
                     vector.push(value);
                     value = JSON::Integer(-1 as f64);
@@ -457,33 +489,33 @@ fn calculate_vector(mut i:usize, input: &Vec<char>) -> (usize, JSON){
                 has_value = false;
                 i += 1;
             }
-            ']' => {
+            b']' => {
                 if has_value {
                     vector.push(value);
                 }
                 return (i+1, JSON::Vector(vector));
             }
-            't'|'f' => {
+            b't'|b'f' => {
                 if has_value {
                     (i,value) = calculate_boolean(i, input);
                 }
                 //panic!("key should be wrapped in double quotes");
             }
-            '{' => {
+            b'{' => {
                 if has_value {
                     panic!("multiple values, object");
                 }
                 (i,value) = calculate_map(i, input);
                 has_value = true;
             }
-            ' ' | '\t' | '\n' => {
+            b' ' | b'\t' | b'\n' => {
                 i += 1;
             }
             c => {
                 if c.is_ascii_digit() {
                     return calculate_number(i, input);
                 }
-                panic!("unknown character vector, {:#?}{}{}{}{}{}{}",value,input[i-4],input[i-3],input[i-2],input[i-1],c,i);
+                panic!("unknown character vector, {:#?}{}{}{}{}{}{}",value,input.as_bytes()[i-4],input.as_bytes()[i-3],input.as_bytes()[i-2],input.as_bytes()[i-1],c,i);
             }
         }
     }
@@ -492,25 +524,25 @@ fn calculate_vector(mut i:usize, input: &Vec<char>) -> (usize, JSON){
 
 
 
-fn calculate_value(mut i:usize, input: &Vec<char>) -> (usize, JSON) {
-    while i<input.len() {
-        match input[i] {
-            '{' => {
+fn calculate_value(mut i:usize, input: &str) -> (usize, JSON) {
+    loop {
+        match input.as_bytes()[i] {
+            b'{' => {
                 return calculate_map(i, input);
             },
-            '"' => {
+            b'"' => {
                 return calculate_string(i+1, input);
             },
-            '[' => {
+            b'[' => {
                 return  calculate_vector(i, input);
             },
-            't'|'f' => {
+            b't'|b'f' => {
                 return calculate_boolean(i, input);
             }
-            'n' => {
+            b'n' => {
                 return calculate_null(i, input);
             }
-            ' ' | '\t' | '\n' => {
+            b' ' | b'\t' | b'\n' => {
                 i += 1;
             }
             c => {
@@ -526,88 +558,7 @@ fn calculate_value(mut i:usize, input: &Vec<char>) -> (usize, JSON) {
     }
     panic!("error parsing value")
 }
-/* 
-
-vector c
-
-fn rec(position i, vector) -> (integer, JSON ) {
-    while(vec[i] != '{'){
-        i++;
-    }
-    map;
-    key;
-    open = false;
-    while(i<vector.size()){
-        if(!open){
-            if(vec[i] == '}'){
-                return json::new(map);
-            }
-            if(vec[i] == ':'){
-                (i,map[key]) = rec(i+1,vector);
-                key = new string;
-            }
-            if(vec[i] == '"'){
-                i++;
-                open = true;
-                continue;
-            }
-            i++;
-            continue;
-        }
-        if(open){
-            if(vec[i] == '"'){
-                open = false;
-                i++;
-                continue;
-            }
-            key.push(vector[i]);
-            i++;
-            continue;
-        }
-    }
-    panic("json not in format");
-}
-
-ll reckey(position i, vector){
-
-    while(i<vector.size()){
-        
-    }
-
-}
-
-ll recvalue(position i, vector){
-}
-
-
-
-*/
 
 
 
 
-
-/*
-
-let json = String::from("jj");
-let x: BTreeMap<String, String> = BTreeMap::new();
-let mut y = JSON::Map(MyMap::new());
-y[String::from("randome key")] = JSON::String(String::from("randome value"));
-y[String::from("internal object")] = JSON::Map(MyMap::new());
-y[5.to_string()] = JSON::Integer(5);
-y[String::from("internal object")][String::from("internal key")] = JSON::Vector(vec![JSON::Integer(1), JSON::Integer(2)]);
-match &mut y[String::from("internal object")][String::from("internal key")] {
-    JSON::Vector(ref mut vector) => {
-        vector.push(JSON::String(String::from("value")));
-        }
-        _ => {}
-        } 
-        y[String::from("internal object")][String::from("internal key")][2] = JSON::Integer(7);
-        println!("Hello, world!,{:#?}\n{:#?}", x, y);
-        println!("{:#?}", y[String::from("randome key")]);
-        println!("{:#?}", y[String::from("internal object")][String::from("internal key")]);
-        println!("{:#?}",json);
-
-
-
-*/
